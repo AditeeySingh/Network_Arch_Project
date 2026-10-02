@@ -328,9 +328,9 @@ Captured from a live exchange on `localhost:9000` requesting `/hello.txt`:
 
 ---
 
-## 9. Why 27 Automated Tests? Detailed Requirement Matrix
+## 9. Automated Test Matrix (34 Tests)
 
-The prompt explicitly required a comprehensive test suite across protocol encoding, framing, server behavior, client execution, and end-to-end integration. Every test directly maps to an assignment specification:
+The test suite covers protocol encoding, framing, server behavior, client execution, adversarial inputs, and end-to-end integration:
 
 | Suite | Test Method | Requirement Verified |
 | :--- | :--- | :--- |
@@ -407,7 +407,7 @@ shasum -a 256 www/test.bin  # Hashes will match identically
 
 | Requirement | Artifact | Status |
 | :--- | :--- | :---: |
-| **1. Specification** | [`SPEC.md`](SPEC.md) | 146 lines (two pages, formal RFC style) |
+| **1. Specification** | [`SPEC.md`](SPEC.md) | 88 lines (strictly fits on 2 pages) |
 | **2. Server Program** | [`server.py`](server.py), [`bserve`](bserve) | Implemented & tested |
 | **3. Client Program** | [`client.py`](client.py), [`bcurl`](bcurl) | Implemented & tested |
 | **4. Annotated Hexdump** | [`HEXDUMP.md`](HEXDUMP.md) | Byte-by-byte wire trace |
