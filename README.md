@@ -79,10 +79,10 @@ A custom, binary-framed, application-layer HTTP protocol with full client (`bcur
 ### 2. Unknown-Frame Forward Compatibility Rule
 A receiver (client or server) encountering an unrecognized frame type **never crashes or disconnects**. Because the 7-byte header unambiguously provides the `Payload Length` before payload interpretation, the receiver cleanly reads and discards that exact number of bytes, continuing to parse the subsequent frame on the stream.
 
-### 3. Compact Header Encoding
-Headers implement HPACK's first two mechanisms:
+### 3. Compact Header Encoding (Inspired by HPACK Concepts)
+Headers implement a compact binary mechanism inspired by HPACK's static table and literal prefix principles (adapted for a lightweight custom protocol rather than full RFC 7541 HPACK):
 - Predefined static table of 10 common headers (`host`, `user-agent`, `content-type`, `content-length`, `connection`, `accept`, `server`, `date`, `last-modified`, `etag`), encoded with a 1-byte name ID.
-- Fallback literal encoding for custom headers (`0x00` ID + 1-byte length + name bytes).
+- Fallback literal encoding for custom headers (`0x00` ID + 1-byte name length + name bytes + 2-byte value length + value bytes).
 
 ### 4. Path Traversal Containment
 All requested paths are canonicalized via `os.path.realpath` and checked against the web root using `os.path.commonpath`. Any request attempting to escape the configured root returns `400 Bad Request`.

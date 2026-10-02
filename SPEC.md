@@ -99,9 +99,9 @@ This rule guarantees version-2 extensibility without breaking version-1 peers.
 
 ---
 
-## 5. Header Encoding (Compact Static Table & Literal Names)
+## 5. Header Encoding (BHTTP/1 Compact Static Table & Literal Names)
 
-BHTTP/1 implements HPACK's first two mechanisms: a predefined static table of common header names and length-prefixed literal headers.
+BHTTP/1 employs a compact binary header encoding inspired by HPACK concepts (specifically adopting a predefined static name table and length-prefixed literal headers for a lightweight binary protocol, rather than full RFC 7541 HPACK).
 
 ### Static Header Table
 
