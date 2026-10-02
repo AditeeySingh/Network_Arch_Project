@@ -1,6 +1,19 @@
 # BHTTP/1 — Binary HTTP Protocol & Implementation
 
-A custom, binary-framed, application-layer HTTP protocol with full client (`bcurl`), server (`bserve`), and comprehensive test suites, engineered according to the Course Project specification.
+A custom, binary-framed, application-layer HTTP protocol with full client (`bcurl`), server (`bserve`), authentic terminal screenshots, and comprehensive test suites, engineered according to the Course Project specification.
+
+---
+
+## Visual Verification & Artifacts
+
+### 1. Complete Automated Test Suite (27/27 Passing)
+![Test Suite Run](docs/images/test_suite_run.png)
+
+### 2. Client Verbose Wire Trace (`./bcurl -v`)
+![bcurl Verbose Trace](docs/images/bcurl_verbose_trace.png)
+
+### 3. Error Handling, Status Exit Codes & Security Defense
+![Error Handling and Security](docs/images/bcurl_error_exit_codes.png)
 
 ---
 
@@ -41,7 +54,8 @@ A custom, binary-framed, application-layer HTTP protocol with full client (`bcur
 4. **`client.py` & `bcurl`**: Track 2 binary client supporting `-v` annotated hex logging, persistent connection reuse, and status exit codes.
 5. **`HEXDUMP.md`**: Authentic, byte-by-byte annotated hexadecimal dump captured live from a real TCP exchange on port 9000.
 6. **`tests/`**: 27 automated unit and integration tests covering protocol serialization, TCP fragmentation/coalescing, path traversal attacks, unknown frame skipping, and subprocess CLI execution.
-7. **`www/`**: Web root fixtures including `index.html`, `hello.txt`, `empty.txt`, and binary `test.bin`.
+7. **`docs/images/`**: High-resolution, authentic terminal screenshots validating test suite execution, wire traces, and security defenses.
+8. **`www/`**: Web root fixtures including `index.html`, `hello.txt`, `empty.txt`, and binary `test.bin`.
 
 ---
 
