@@ -119,8 +119,8 @@ Total Frame Size: 56 bytes (7-byte header + 49-byte payload)
 
 ## 4. Verification Check
 
-- $\text{Total Response Payload Length} = 49\text{ bytes}$.
-- $\text{Offset of Body} = 2\text{ (Status)} + 1\text{ (Hdr Count)} + (1 + 2 + 10)\text{ [Hdr 1]} + (1 + 2 + 10)\text{ [Hdr 2]} + (1 + 2 + 2)\text{ [Hdr 3]} = 34\text{ bytes}$.
-- $\text{Body Length} = 49 - 34 = 15\text{ bytes}$.
-- $\text{Body Bytes} = \text{"Hello BHTTP/1!\textbackslash n"}$ (length matches exactly 15 bytes).
+- Total Response Payload Length = 49 bytes.
+- Offset of Body = 2 (Status) + 1 (Hdr Count) + (1 + 2 + 10) [Hdr 1] + (1 + 2 + 10) [Hdr 2] + (1 + 2 + 2) [Hdr 3] = 34 bytes.
+- Body Length = 49 - 34 = 15 bytes.
+- Body Bytes = "Hello BHTTP/1!\n" (length matches exactly 15 bytes).
 - No NUL-terminators are used anywhere in the body.

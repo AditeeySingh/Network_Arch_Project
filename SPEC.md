@@ -185,12 +185,12 @@ The payload of a `REQUEST` frame contains the method, requested path, and option
    - `0x02` = `HEAD`
    - `0x03` = `POST`
    - Other values are unsupported. Server replies with status `400` (or `405`).
-2. **Path Length (2 bytes, Big-Endian):** Length of requested path in bytes ($1 \le \text{Path Length} \le 4096$).
+2. **Path Length (2 bytes, Big-Endian):** Length of requested path in bytes (1 to 4096 bytes).
 3. **Path Bytes (Variable):** UTF-8 encoded URL path (e.g., `/index.html`).
    - MUST begin with `/`.
    - MUST NOT contain NUL (`0x00`) bytes.
-4. **Header Count (1 byte):** Number of headers following ($0 \le N \le 255$).
-5. **Header Block:** $N$ serialized header entries according to Section 5.
+4. **Header Count (1 byte):** Number of headers following (0 to 255).
+5. **Header Block:** Serialized header entries according to Section 5.
 
 ---
 
@@ -214,14 +214,14 @@ The payload of a `RESPONSE` frame contains the status code, response headers, an
    - `404` (`0x0194`): Not Found (resource does not exist)
    - `405` (`0x0195`): Method Not Allowed
    - `500` (`0x01F4`): Internal Server Error
-2. **Header Count (1 byte):** Number of headers following ($0 \le N \le 255$).
-3. **Header Block:** $N$ serialized header entries according to Section 5.
+2. **Header Count (1 byte):** Number of headers following (0 to 255).
+3. **Header Block:** Serialized header entries according to Section 5.
 4. **Body Bytes (Variable):**
    - The body consists of ALL remaining bytes in the frame payload.
-   - $\text{Body Length} = \text{Payload Length} - (\text{Size of Status} + \text{Size of Header Count} + \text{Total Headers Size})$.
+   - `Body Length = Payload Length - (Size of Status + Size of Header Count + Total Headers Size)`.
    - Body bytes are arbitrary raw binary data (images, HTML, plain text, compiled binaries).
    - Bodies are NEVER NUL-terminated.
-   - If $\text{Body Length} == 0$, the response body is empty.
+   - If `Body Length == 0`, the response body is empty.
 
 ---
 
@@ -233,8 +233,10 @@ When the server receives a path in a `REQUEST` frame:
 2. **NUL Byte Defense:** If the path contains `0x00` anywhere, the request MUST be rejected with 400.
 3. **Path Normalization:** The server strips leading slashes, resolves relative directory segments (`.` and `..`), and joins the path to the configured root directory.
 4. **Traversal Containment Check:**
-   The absolute canonical path of the requested file MUST start with the absolute canonical path of the web root directory:
-   $$\text{realpath}(\text{target}) \subseteq \text{realpath}(\text{web\_root})$$
+   The absolute canonical path of the requested file MUST reside inside the absolute canonical path of the web root directory:
+   ```python
+   os.path.commonpath([realpath(web_root), realpath(target)]) == realpath(web_root)
+   ```
    Any attempt to traverse outside the web root (e.g., `../../etc/passwd`, `/../secret.txt`) MUST be rejected immediately with `400 Bad Request` or `404 Not Found`. BHTTP/1 standardizes on **400 Bad Request** for path traversal attempts.
 5. **Directory Default:** If the target resolves to a directory, the server checks for `index.html` within that directory. If present, it serves `index.html`; otherwise, it returns `404 Not Found`.
 
@@ -251,10 +253,10 @@ A server encountering a malformed frame MUST respond with a `RESPONSE` frame car
 1. **Truncated Header:** TCP stream closes before 7 header bytes are read.
 2. **Premature Payload EOF:** TCP stream closes before `Payload Length` bytes are read.
 3. **Oversized Payload:** `Payload Length` exceeds 16,777,215 bytes (or server-configured safety limit).
-4. **Truncated Request Payload:** Payload is shorter than 3 bytes (Method + Path Length) or shorter than $3 + \text{Path Length} + 1$.
+4. **Truncated Request Payload:** Payload is shorter than 3 bytes (Method + Path Length) or shorter than `3 + Path Length + 1`.
 5. **Invalid Method:** Method byte is not in `[0x01, 0x02, 0x03]`.
 6. **Invalid Path:** Path contains NUL bytes, fails UTF-8 decoding, or fails to begin with `/`.
-7. **Malformed Headers:** Header Count claims more headers than payload bytes provide, or Name ID is out of range ($> 10$), or string value length exceeds remaining payload.
+7. **Malformed Headers:** Header Count claims more headers than payload bytes provide, or Name ID is out of range (> 10), or string value length exceeds remaining payload.
 
 ---
 

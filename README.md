@@ -22,34 +22,6 @@ All terminal captures below were executed live on macOS and captured directly fr
 
 ---
 
-## Table of Contents
-
-- [1. Course Project Context & Core Philosophy](#1-course-project-context--core-philosophy)
-- [2. Repository Architecture & File Mapping](#2-repository-architecture--file-mapping)
-- [3. The BHTTP/1 Protocol Wire Specification](#3-the-bhttp1-protocol-wire-specification)
-  - [3.1 The Invariant 7-Byte Fixed Frame Header](#31-the-invariant-7-byte-fixed-frame-header)
-  - [3.2 Defense of Field Widths (Comparison with HTTP/2)](#32-defense-of-field-widths-comparison-with-http2)
-  - [3.3 Frame Types & Registry](#33-frame-types--registry)
-  - [3.4 Compact Header Encoding (Inspired by HPACK Concepts)](#34-compact-header-encoding-inspired-by-hpack-concepts)
-  - [3.5 Request Frame Payload Layout](#35-request-frame-payload-layout)
-  - [3.6 Response Frame Payload Layout](#36-response-frame-payload-layout)
-- [4. The Mandatory Unknown-Frame Forward Compatibility Rule](#4-the-mandatory-unknown-frame-forward-compatibility-rule)
-- [5. TCP Stream Framing & Exact Network I/O Engine](#5-tcp-stream-framing--exact-network-io-engine)
-- [6. Track 1 — Binary Server (`bserve`)](#6-track-1--binary-server-bserve)
-  - [6.1 Architecture & Concurrency Model](#61-architecture--concurrency-model)
-  - [6.2 Filesystem Resolution & Traversal Defense](#62-filesystem-resolution--traversal-defense)
-  - [6.3 Status Codes & Malformed Frame Recovery](#63-status-codes--malformed-frame-recovery)
-- [7. Track 2 — Binary Client (`bcurl`)](#7-track-2--binary-client-bcurl)
-  - [7.1 Single TCP Connection Guarantee](#71-single-tcp-connection-guarantee)
-  - [7.2 Stream Correlation & Diagnostic Hex Tracing (`-v`)](#72-stream-correlation--diagnostic-hex-tracing--v)
-  - [7.3 Process Exit Code Contract](#73-process-exit-code-contract)
-- [8. Annotated Hexdump Walkthrough (`HEXDUMP.md`)](#8-annotated-hexdump-walkthrough-hexdumpmd)
-- [9. Why 27 Automated Tests? Detailed Requirement Matrix](#9-why-27-automated-tests-detailed-requirement-matrix)
-- [10. Step-by-Step Quickstart & CLI Verification](#10-step-by-step-quickstart--cli-verification)
-- [11. Final Deliverables Audit](#11-final-deliverables-audit)
-
----
-
 ## 1. Course Project Context & Core Philosophy
 
 The project mandate establishes a core conceptual requirement:
@@ -136,25 +108,25 @@ Every BHTTP/1 frame transmitted over TCP begins with an immutable 7-byte binary 
 
 | Byte Offset | Field Name | Width | Type | Description |
 | :---: | :--- | :---: | :---: | :--- |
-| `00..02` | **Payload Length** | 3 Bytes (24 bits) | Big-Endian uint | Exact payload size in bytes ($0 \le N \le 16,777,215$). Excludes the 7-byte header. |
+| `00..02` | **Payload Length** | 3 Bytes (24 bits) | Big-Endian uint | Exact payload size in bytes (0 to 16,777,215 bytes). Excludes the 7-byte header. |
 | `03` | **Frame Type** | 1 Byte (8 bits) | uint8 | Identifies frame purpose (`0x01` REQUEST, `0x02` RESPONSE). |
 | `04` | **Flags** | 1 Byte (8 bits) | bitfield | Bit 0 (`0x01`): `END_STREAM`. Bits 1..7: Reserved (MUST be 0). |
-| `05..06` | **Stream ID** | 2 Bytes (16 bits) | Big-Endian uint | Transaction correlation tag ($1 \le ID \le 65,535$). |
+| `05..06` | **Stream ID** | 2 Bytes (16 bits) | Big-Endian uint | Transaction correlation tag (1 to 65,535). |
 
 ### 3.2 Defense of Field Widths (Comparison with HTTP/2)
 
 In HTTP/2 (`RFC 7540`), the frame header is 9 bytes with a `24 / 8 / 8 / 31` layout:
-- **24-bit Length Prefix:** HTTP/2 chose 24 bits ($2^{24}-1 = 16,777,215$ bytes) rather than 32 bits to prevent unconstrained memory pre-allocation vulnerabilities on resource-constrained intermediaries while comfortably transmitting 16 MiB frames in a single chunk. BHTTP/1 retains this exact 24-bit big-endian length prefix.
+- **24-bit Length Prefix:** HTTP/2 chose 24 bits (2^24 - 1 = 16,777,215 bytes) rather than 32 bits to prevent unconstrained memory pre-allocation vulnerabilities on resource-constrained intermediaries while comfortably transmitting 16 MiB frames in a single chunk. BHTTP/1 retains this exact 24-bit big-endian length prefix.
 - **8-bit Type:** Accommodates 256 frame types, leaving 254 types for protocol evolution.
 - **8-bit Flags:** Accommodates 8 boolean signals per frame.
-- **16-bit Stream ID vs HTTP/2 31-bit:** HTTP/2 uses a 31-bit stream identifier to support millions of concurrent multiplexed streams over multi-day sessions. For BHTTP/1's persistent request-response model, a 16-bit unsigned integer ($65,535$ streams) reduces header overhead by 2 full bytes per frame (from 9 bytes down to 7 bytes, a 22.2% header bandwidth saving) while providing more than enough headroom for persistent sessions.
+- **16-bit Stream ID vs HTTP/2 31-bit:** HTTP/2 uses a 31-bit stream identifier to support millions of concurrent multiplexed streams over multi-day sessions. For BHTTP/1's persistent request-response model, a 16-bit unsigned integer (up to 65,535 streams) reduces header overhead by 2 full bytes per frame (from 9 bytes down to 7 bytes, a 22.2% header bandwidth saving) while providing more than enough headroom for persistent sessions.
 
 ### 3.3 Frame Types & Registry
 
 | Type Byte | Name | Direction | Description |
 | :---: | :--- | :---: | :--- |
-| `0x01` | **REQUEST** | Client $\rightarrow$ Server | Initiates an HTTP-like resource request. |
-| `0x02` | **RESPONSE** | Server $\rightarrow$ Client | Delivers status, headers, and body bytes. |
+| `0x01` | **REQUEST** | Client -> Server | Initiates an HTTP-like resource request. |
+| `0x02` | **RESPONSE** | Server -> Client | Delivers status, headers, and body bytes. |
 | `0x03`..`0xFE` | **RESERVED / EXTENSION** | Bidirectional | Reserved for version-2 forward extensions (PING, METADATA). |
 | `0xFF` | **RESERVED** | N/A | Reserved for experimental testing. |
 
@@ -193,7 +165,7 @@ To prevent repeatedly re-transmitting redundant header strings across persistent
 +---------------+-------------------------------------------------------+
 ```
 - **Method (1 byte):** `0x01` = GET, `0x02` = HEAD, `0x03` = POST.
-- **Path Length (2 bytes, Big-Endian):** $1 \le L \le 4096$.
+- **Path Length (2 bytes, Big-Endian):** 1 to 4096 bytes.
 - **Path Bytes (UTF-8):** Normalized path (e.g., `/hello.txt`). Must start with `/` and contain no NUL bytes.
 - **Header Count (1 byte):** Number of header entries following.
 
@@ -209,7 +181,9 @@ To prevent repeatedly re-transmitting redundant header strings across persistent
 - **Status Code (2 bytes, Big-Endian):** Numeric status (200, 400, 404, 500).
 - **Header Count (1 byte):** Number of header entries following.
 - **Body Bytes:** All remaining payload bytes. Body length is strictly derived:
-  $$\text{Body Length} = \text{Payload Length} - (\text{Size of Status} + \text{Size of Hdr Count} + \text{Total Headers Size})$$
+  ```text
+  Body Length = Payload Length - (Size of Status + Size of Hdr Count + Total Headers Size)
+  ```
 - Bodies are raw binary data (supporting PNGs, binaries, HTML, or empty 0-byte files) and are **never NUL-terminated**.
 
 ---
@@ -271,11 +245,15 @@ The server executable (`bserve`) invokes [`server.py`](server.py). It binds a st
 
 ### 6.2 Filesystem Resolution & Traversal Defense
 When mapping the request path to a file under the web root:
-1. Strips leading slashes: `/hello.txt` $\rightarrow$ `hello.txt`.
+1. Strips leading slashes: `/hello.txt` -> `hello.txt`.
 2. Resolves canonical real paths:
-   $$\text{target} = \text{realpath}(\text{join}(\text{abs\_root}, \text{rel\_path}))$$
+   ```python
+   target = os.path.realpath(os.path.join(abs_root, rel_path))
+   ```
 3. Verifies containment:
-   $$\text{commonpath}([\text{abs\_root}, \text{target}]) == \text{abs\_root}$$
+   ```python
+   os.path.commonpath([abs_root, target]) == abs_root
+   ```
 4. Rejection: Any path escaping the root (e.g. `../../etc/passwd` or `/....//`) is rejected immediately with **`400 Bad Request`**.
 5. Directories: If the target is a directory, it checks for `index.html`. If not found, it returns `404 Not Found`.
 
@@ -312,10 +290,10 @@ Captured from a live exchange on `localhost:9000` requesting `/hello.txt`:
 00 00 31 01 00 00 01 01 00 0a 2f 68 65 6c 6c 6f 2e 74 78 74 03 01 00 0e 6c 6f 63 61 6c 68 6f 73
 74 3a 39 30 30 30 02 00 09 62 63 75 72 6c 2f 31 2e 30 06 00 03 2a 2f 2a
 ```
-- `00 00 31`: 49-byte payload length ($0 \times 000031$).
+- `00 00 31`: 49-byte payload length (0x000031).
 - `01 00 00 01`: Type `0x01` (`REQUEST`), Flags `0x00`, Stream ID `1`.
 - `01`: Method `0x01` (`GET`).
-- `00 0A 2F...74`: Path length 10 $\rightarrow$ `"/hello.txt"`.
+- `00 0A 2F...74`: Path length 10 -> `"/hello.txt"`.
 - `03`: 3 headers following.
 - `01 00 0E 6C...30`: Indexed Header 1 (`host`: `"localhost:9000"`).
 - `02 00 09 62...30`: Indexed Header 2 (`user-agent`: `"bcurl/1.0"`).
@@ -344,11 +322,11 @@ The prompt explicitly required a comprehensive test suite across protocol encodi
 | Suite | Test Method | Requirement Verified |
 | :--- | :--- | :--- |
 | **Protocol** | `test_header_encode_decode_basic` | 7-byte header serialization and big-endian field extraction. |
-| **Protocol** | `test_24bit_payload_boundaries` | Enforces 24-bit max boundary ($16,777,215$ bytes) and overflow detection. |
+| **Protocol** | `test_24bit_payload_boundaries` | Enforces 24-bit max boundary (16,777,215 bytes) and overflow detection. |
 | **Protocol** | `test_truncated_header_decode` | Rejects headers shorter than 7 bytes with `MalformedFrameError`. |
 | **Protocol** | `test_static_table_headers` | HPACK-inspired static table (IDs 1..10) encoding and decoding. |
 | **Protocol** | `test_literal_and_mixed_headers` | Custom header literal encoding (`0x00` tag with name length prefix). |
-| **Protocol** | `test_malformed_header_tag` | Rejects invalid static header indices ($> 10$) with `MalformedFrameError`. |
+| **Protocol** | `test_malformed_header_tag` | Rejects invalid static header indices (> 10) with `MalformedFrameError`. |
 | **Protocol** | `test_truncated_headers` | Validates payload integrity when header count exceeds buffer length. |
 | **Protocol** | `test_request_roundtrip` | Full request payload encoding/decoding with method, path, and headers. |
 | **Protocol** | `test_invalid_request_paths` | Blocks paths lacking leading `/` or containing NUL bytes. |
