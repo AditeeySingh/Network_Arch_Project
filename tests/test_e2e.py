@@ -202,9 +202,95 @@ class TestBHttpEndToEnd(unittest.TestCase):
         proc_v = subprocess.run(cmd_v, capture_output=True)
         self.assertEqual(proc_v.returncode, 0)
         self.assertEqual(proc_v.stdout, b"Hello BHTTP/1!\n")
+        # Verbose flag test: stdout has body, stderr has hexdump trace
+        cmd_v = [sys.executable, "./bcurl", "-v", f"127.0.0.1:{self.port}/hello.txt"]
+        proc_v = subprocess.run(cmd_v, capture_output=True)
+        self.assertEqual(proc_v.returncode, 0)
+        self.assertEqual(proc_v.stdout, b"Hello BHTTP/1!\n")
         self.assertIn(b"SEND REQUEST Frame", proc_v.stderr)
         self.assertIn(b"Status: 200", proc_v.stderr)
+
+    def test_10_head_request_returns_headers_and_empty_body(self):
+        """HEAD request must compute content-length but return 0 body bytes."""
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect(("127.0.0.1", self.port))
+        try:
+            req = Request(
+                method="HEAD",
+                path="/hello.txt",
+                headers=[("host", f"127.0.0.1:{self.port}")],
+                stream_id=42,
+            )
+            resp = send_request(sock, req, verbose=False)
+            self.assertEqual(resp.status_code, 200)
+            self.assertEqual(resp.stream_id, 42)
+            self.assertEqual(resp.body, b"")
+            # Ensure content-length is present and equals 15 (size of "Hello BHTTP/1!\n")
+            headers_dict = dict(resp.headers)
+            self.assertEqual(headers_dict.get("content-length"), "15")
+        finally:
+            sock.close()
+
+    def test_11_post_request_returns_405_method_not_allowed(self):
+        """POST request must return 405 Method Not Allowed with Allow header."""
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect(("127.0.0.1", self.port))
+        try:
+            req = Request(
+                method="POST",
+                path="/hello.txt",
+                headers=[("host", f"127.0.0.1:{self.port}")],
+                stream_id=43,
+            )
+            resp = send_request(sock, req, verbose=False)
+            self.assertEqual(resp.status_code, 405)
+            self.assertEqual(resp.stream_id, 43)
+            headers_dict = dict(resp.headers)
+            self.assertEqual(headers_dict.get("allow"), "GET, HEAD")
+        finally:
+            sock.close()
+
+    def test_12_permission_denied_returns_403(self):
+        """Unreadable file permissions must return 403 Forbidden."""
+        test_file = os.path.join(self.web_root, "forbidden.txt")
+        with open(test_file, "w") as f:
+            f.write("Secret data")
+        os.chmod(test_file, 0o000)
+        try:
+            resp, sock = execute_bcurl("127.0.0.1", self.port, "/forbidden.txt")
+            sock.close()
+            self.assertEqual(resp.status_code, 403)
+            self.assertIn(b"403 Forbidden", resp.body)
+        finally:
+            os.chmod(test_file, 0o644)
+            if os.path.exists(test_file):
+                os.remove(test_file)
+
+    def test_13_streaming_unknown_frame_discard(self):
+        """Server must discard large unknown frames (>64 KiB) using streaming chunks."""
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect(("127.0.0.1", self.port))
+        try:
+            # Send 128 KiB unknown frame (type 0x99)
+            large_unknown_payload = b"Z" * (128 * 1024)
+            unknown_frame = encode_frame(0x99, FLAG_NONE, 10, large_unknown_payload)
+            write_exact(sock, unknown_frame)
+
+            # Immediately send valid request on the same persistent socket
+            req = Request(
+                method="GET",
+                path="/hello.txt",
+                headers=[("host", f"127.0.0.1:{self.port}")],
+                stream_id=11,
+            )
+            resp = send_request(sock, req, verbose=False)
+            self.assertEqual(resp.status_code, 200)
+            self.assertEqual(resp.stream_id, 11)
+            self.assertEqual(resp.body, b"Hello BHTTP/1!\n")
+        finally:
+            sock.close()
 
 
 if __name__ == "__main__":
     unittest.main()
+

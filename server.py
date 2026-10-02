@@ -1,7 +1,8 @@
 """BHTTP/1 Server Implementation (bserve).
 
 Listens on TCP, decodes binary request frames, enforces path traversal security,
-supports persistent connections, and cleanly skips unknown frame types.
+supports persistent connections, streaming unknown-frame discarding,
+and robust error handling (400, 403, 404, 405, 500).
 """
 
 from __future__ import annotations
@@ -14,8 +15,12 @@ import threading
 from typing import Optional, Tuple
 
 from protocol import (
+    FRAME_HEADER_SIZE,
+    MAX_PAYLOAD_SIZE,
     STATUS_BAD_REQUEST,
+    STATUS_FORBIDDEN,
     STATUS_INTERNAL_ERROR,
+    STATUS_METHOD_NOT_ALLOWED,
     STATUS_NOT_FOUND,
     STATUS_OK,
     TYPE_REQUEST,
@@ -26,9 +31,11 @@ from protocol import (
     Request,
     Response,
     TruncatedFrameError,
+    decode_frame_header,
     decode_request_payload,
+    discard_exact,
     encode_response_frame,
-    read_frame,
+    read_exact,
     write_exact,
 )
 
@@ -72,6 +79,15 @@ def resolve_safe_path(web_root: str, req_path: str) -> Tuple[int, Optional[str],
         return STATUS_NOT_FOUND, "text/plain", b"404 Not Found: File not found\n"
 
     try:
+        # Check size before reading into memory to prevent unconstrained RAM allocation
+        file_size = os.path.getsize(target)
+        if file_size > MAX_PAYLOAD_SIZE - 256:
+            return (
+                STATUS_INTERNAL_ERROR,
+                "text/plain",
+                b"500 Internal Server Error: File exceeds 16 MiB protocol limit\n",
+            )
+
         with open(target, "rb") as f:
             content = f.read()
 
@@ -80,22 +96,30 @@ def resolve_safe_path(web_root: str, req_path: str) -> Tuple[int, Optional[str],
             mime = "application/octet-stream"
         return STATUS_OK, mime, content
     except PermissionError:
-        return STATUS_BAD_REQUEST, "text/plain", b"400 Bad Request: File access permission denied\n"
+        return STATUS_FORBIDDEN, "text/plain", b"403 Forbidden: File access permission denied\n"
     except Exception:
         return STATUS_INTERNAL_ERROR, "text/plain", b"500 Internal Server Error\n"
 
 
-def handle_client_connection(conn: socket.socket, addr: Tuple[str, int], web_root: str) -> None:
+def handle_client_connection(
+    conn: socket.socket, addr: Tuple[str, int], web_root: str, timeout: float = 30.0
+) -> None:
     """Handle a single persistent client TCP connection."""
+    conn.settimeout(timeout)
     try:
         while True:
             try:
-                frame = read_frame(conn)
+                # 1. Read exactly 7 header bytes
+                header_bytes = read_exact(conn, FRAME_HEADER_SIZE)
+                payload_len, frame_type, flags, stream_id = decode_frame_header(header_bytes)
             except ConnectionClosedError:
-                # Normal persistent connection termination by peer
+                # Normal persistent connection termination by peer at frame boundary
                 break
             except TruncatedFrameError:
-                # Connection dropped mid-frame
+                # Connection dropped mid-frame: loss of synchronization
+                break
+            except socket.timeout:
+                # Inactive client timeout (Slowloris mitigation)
                 break
             except (MalformedFrameError, OversizedPayloadError) as e:
                 # Send 400 Bad Request response before closing connection
@@ -111,33 +135,68 @@ def handle_client_connection(conn: socket.socket, addr: Tuple[str, int], web_roo
                     pass
                 break
 
-            # Unknown Frame Rule (Forward Compatibility):
-            # A receiver meeting a frame type it does not know MUST skip it cleanly!
-            if frame.frame_type != TYPE_REQUEST:
-                # read_frame has already consumed the payload according to payload_length
-                # Discard and continue to next frame on this persistent connection
+            # 2. Unknown-Frame Forward Compatibility Rule:
+            # Any frame type other than 0x01 (REQUEST) MUST be skipped cleanly
+            if frame_type != TYPE_REQUEST:
+                try:
+                    # Stream discard in 64 KiB chunks without buffering into RAM
+                    discard_exact(conn, payload_len)
+                except TruncatedFrameError:
+                    break
                 continue
 
-            # Decode request payload
+            # 3. Read valid REQUEST frame payload
             try:
-                req = decode_request_payload(frame.payload, stream_id=frame.stream_id)
+                payload = read_exact(conn, payload_len)
+            except TruncatedFrameError:
+                break
+
+            # 4. Decode request payload
+            try:
+                req = decode_request_payload(payload, stream_id=stream_id)
             except MalformedFrameError as e:
                 err_resp = Response(
                     status_code=STATUS_BAD_REQUEST,
                     headers=[("server", "bserve/1.0"), ("content-type", "text/plain")],
                     body=f"400 Bad Request: {str(e)}\n".encode("utf-8"),
-                    stream_id=frame.stream_id,
+                    stream_id=stream_id,
                 )
-                write_exact(conn, encode_response_frame(err_resp))
+                try:
+                    write_exact(conn, encode_response_frame(err_resp))
+                except Exception:
+                    pass
                 continue
 
-            # Process request against safe filesystem
+            # 5. Method enforcement (GET and HEAD supported; others return 405)
+            if req.method not in ("GET", "HEAD"):
+                err_resp = Response(
+                    status_code=STATUS_METHOD_NOT_ALLOWED,
+                    headers=[
+                        ("server", "bserve/1.0"),
+                        ("content-type", "text/plain"),
+                        ("allow", "GET, HEAD"),
+                    ],
+                    body=f"405 Method Not Allowed: {req.method} is not supported\n".encode("utf-8"),
+                    stream_id=req.stream_id,
+                )
+                try:
+                    write_exact(conn, encode_response_frame(err_resp))
+                except Exception:
+                    pass
+                continue
+
+            # 6. Process resource mapping
             status, mime, body = resolve_safe_path(web_root, req.path)
+            content_length = len(body)
+
+            # For HEAD requests, compute content-length but omit body bytes
+            if req.method == "HEAD":
+                body = b""
 
             resp_headers = [
                 ("server", "bserve/1.0"),
                 ("content-type", mime or "application/octet-stream"),
-                ("content-length", str(len(body))),
+                ("content-length", str(content_length)),
             ]
 
             resp = Response(
@@ -147,7 +206,19 @@ def handle_client_connection(conn: socket.socket, addr: Tuple[str, int], web_roo
                 stream_id=req.stream_id,
             )
 
-            write_exact(conn, encode_response_frame(resp))
+            try:
+                write_exact(conn, encode_response_frame(resp))
+            except OversizedPayloadError:
+                err_resp = Response(
+                    status_code=STATUS_INTERNAL_ERROR,
+                    headers=[("server", "bserve/1.0"), ("content-type", "text/plain")],
+                    body=b"500 Internal Server Error: File exceeds 16 MiB payload limit\n",
+                    stream_id=req.stream_id,
+                )
+                try:
+                    write_exact(conn, encode_response_frame(err_resp))
+                except Exception:
+                    pass
     finally:
         try:
             conn.close()

@@ -64,6 +64,7 @@ STATIC_HEADER_ID_TO_NAME = STATIC_HEADER_TABLE
 # Status Codes
 STATUS_OK = 200
 STATUS_BAD_REQUEST = 400
+STATUS_FORBIDDEN = 403
 STATUS_NOT_FOUND = 404
 STATUS_METHOD_NOT_ALLOWED = 405
 STATUS_INTERNAL_ERROR = 500
@@ -154,6 +155,19 @@ def read_exact(sock: socket.socket, num_bytes: int) -> bytes:
         bytes_read += len(chunk)
 
     return b"".join(chunks)
+
+
+def discard_exact(sock: socket.socket, num_bytes: int) -> None:
+    """Read and discard num_bytes in streaming chunks without memory allocation."""
+    if num_bytes < 0:
+        raise ValueError("num_bytes cannot be negative")
+    remaining = num_bytes
+    while remaining > 0:
+        to_read = min(remaining, 65536)
+        chunk = sock.recv(to_read)
+        if not chunk:
+            raise TruncatedFrameError("Connection dropped while skipping unknown frame payload")
+        remaining -= len(chunk)
 
 
 def write_exact(sock: socket.socket, data: bytes) -> None:
