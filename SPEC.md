@@ -78,16 +78,24 @@ Payload layout: `[2B Status Code (BE)] [1B Header Count] [Headers ...] [Body Byt
 
 ---
 
-## 8. Concrete Worked Example (Live Exchange)
+## 8. Concrete Worked Example
 
-*(Full byte-by-byte annotated hexdump available in `HEXDUMP.md`)*
+### Request (56 bytes)
+```
+00 00 31 01 00 00 01                                  frame header: len=49, REQUEST, flags=0, stream=1
+01 00 0A 2F 68 65 6C 6C 6F 2E 74 78 74                GET, path len 10, "/hello.txt"
+03                                                    3 headers
+01 00 0E 6C 6F 63 61 6C 68 6F 73 74 3A 39 30 30 30    host: "localhost:9000"
+02 00 09 62 63 75 72 6C 2F 31 2E 30                   user-agent: "bcurl/1.0"
+06 00 03 2A 2F 2A                                     accept: "*/*"
+```
 
-- **Request `GET /hello.txt` (Stream 1, 56 bytes total):**
-  - Header (7B): `00 00 31 01 00 00 01` (Len=49, Type=REQUEST, Flags=0, StreamID=1)
-  - Payload (49B): `01 00 0A` (`GET`, len 10) `2F 68 65 6C 6C 6F 2E 74 78 74` (`/hello.txt`) `03` (3 headers: `host: localhost:9000`, `user-agent: bcurl/1.0`, `accept: */*`).
-- **Response `200 OK` (Stream 1, 56 bytes total):**
-  - Header (7B): `00 00 31 02 00 00 01` (Len=49, Type=RESPONSE, Flags=0, StreamID=1)
-  - Payload (49B): `00 C8` (200 OK) `03` (3 headers: `server: bserve/1.0`, `content-type: text/plain`, `content-length: 15`) `48 65 6C 6C 6F 20 42 48 54 54 50 2F 31 21 0A` (Body: `"Hello BHTTP/1!\n"`).
-
-
-
+### Response (56 bytes)
+```
+00 00 31 02 00 00 01                                  frame header: len=49, RESPONSE, flags=0, stream=1
+00 C8 03                                              status 200, 3 headers
+07 00 0A 62 73 65 72 76 65 2F 31 2E 30                server: "bserve/1.0"
+03 00 0A 74 65 78 74 2F 70 6C 61 69 6E                content-type: "text/plain"
+04 00 02 31 35                                        content-length: "15"
+48 65 6C 6C 6F 20 42 48 54 54 50 2F 31 21 0A          body: "Hello BHTTP/1!\n"
+```
