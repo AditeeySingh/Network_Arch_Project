@@ -407,7 +407,7 @@ shasum -a 256 www/test.bin  # Hashes will match identically
 
 | Requirement | Artifact | Status |
 | :--- | :--- | :---: |
-| **1. Specification** | [`SPEC.md`](SPEC.md) | 88 lines (strictly fits on 2 pages) |
+| **1. Specification** | [`SPEC.md`](SPEC.md) | 93 lines (strictly fits on 2 pages) |
 | **2. Server Program** | [`server.py`](server.py), [`bserve`](bserve) | Implemented & tested |
 | **3. Client Program** | [`client.py`](client.py), [`bcurl`](bcurl) | Implemented & tested |
 | **4. Annotated Hexdump** | [`HEXDUMP.md`](HEXDUMP.md) | Byte-by-byte wire trace |

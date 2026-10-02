@@ -12,10 +12,11 @@ BHTTP/1 operates over persistent TCP. Message boundaries are strictly delimited 
 | :--- | :---: | :---: | :---: | :--- |
 | **Payload Length** | 0..2 | 3 Bytes (24b) | Big-Endian uint | Size of payload in bytes (0 to 16,777,215). Excludes the 7-byte header. |
 | **Frame Type** | 3 | 1 Byte (8b) | uint8 | `0x01` = REQUEST, `0x02` = RESPONSE. All other values are UNKNOWN. |
-| **Flags** | 4 | 1 Byte (8b) | bitfield | Bit 0 (`0x01`): `END_STREAM`. Bits 1..7: Reserved (MUST be 0). |
-| **Stream ID** | 5..6 | 2 Bytes (16b) | Big-Endian uint | Transaction correlation tag (1..65,535). Echoed in responses. Wraps to 1. |
+| **Flags** | 4 | 1 Byte (8b) | bitfield | Bit 0 (`0x01`): `END_STREAM`. Bits 1..7: Reserved (senders set to 0; receivers MUST ignore). |
+| **Stream ID** | 5..6 | 2 Bytes (16b) | Big-Endian uint | Transaction correlation tag (1..65,535). Stream ID 0 is reserved. |
 
-- **Field Width Defense:** 24-bit length allows transferring files up to 16 MiB in a single frame without continuation/reassembly overhead, matching HTTP/2's maximum negotiated frame limit (`RFC 7540` `SETTINGS_MAX_FRAME_SIZE` of $2^{24}-1$). A 16-bit Stream ID saves 2 bytes per frame over HTTP/2's 31-bit ID (7 vs 9 bytes, a 22.2% header bandwidth saving), providing 65,535 sequential request-response cycles on persistent connections.
+- **Stream ID Assignment:** The client chooses Stream IDs, starting at 1, incrementing per request and wrapping from 65,535 to 1. The server MUST echo the request Stream ID in its corresponding response.
+- **Field Width Defense:** 24-bit length allows transferring files up to 16 MiB in a single frame without continuation/reassembly overhead, matching HTTP/2's maximum negotiated frame limit (RFC 7540 `SETTINGS_MAX_FRAME_SIZE` of 2^24 - 1 bytes). A 16-bit Stream ID saves 2 bytes per frame over HTTP/2's 31-bit ID (7 vs 9 bytes, a 22.2% header bandwidth saving), providing 65,535 sequential request-response cycles on persistent connections.
 - **Connection Rules:** Connections are persistent. Reading 0 bytes at a 7-byte header boundary indicates clean connection termination by the peer.
 
 ---
@@ -35,7 +36,9 @@ A receiver encountering an unknown frame MUST:
 Headers consist of a 1-byte `Header Count` (0..255) followed by serialized header entries:
 - **Static Name Table (IDs 1..10):** `1: host`, `2: user-agent`, `3: content-type`, `4: content-length`, `5: connection`, `6: accept`, `7: server`, `8: date`, `9: last-modified`, `10: etag`.
 - **Indexed Entry (`1 <= ID <= 10`):** `[1B Name ID] [2B Value Length (BE)] [Value Bytes (UTF-8)]`
-- **Literal Entry (`ID == 0x00`):** `[0x00] [1B Name Length] [Name Bytes (UTF-8)] [2B Value Length (BE)] [Value Bytes (UTF-8)]`
+- **Literal Entry (`ID == 0x00`):** `[0x00] [1B Name Length] [Name Bytes (lowercase ASCII)] [2B Value Length (BE)] [Value Bytes (UTF-8)]`
+- **Literal Names:** Literal header names MUST be lowercase ASCII (`[a-z0-9_-]`).
+- **Duplicates & Ordering:** Duplicate headers are permitted and receivers MUST preserve their transmission order.
 - **Invalid IDs:** Name IDs `0x0B`..`0xFF` are malformed and MUST be rejected with `400 Bad Request`.
 
 ---
@@ -44,7 +47,7 @@ Headers consist of a 1-byte `Header Count` (0..255) followed by serialized heade
 
 Payload layout: `[1B Method] [2B Path Length (BE)] [Path Bytes (UTF-8)] [1B Header Count] [Headers ...]`
 - **Method (1 byte):** `0x01` = GET, `0x02` = HEAD. Unsupported methods (e.g. POST `0x03`) MUST return `405 Method Not Allowed` with header `allow: GET, HEAD`.
-- **Path Length (2 bytes, Big-Endian):** Path size in bytes ($1 \le L \le 4096$).
+- **Path Length (2 bytes, Big-Endian):** Path size in bytes (1 to 4096 bytes).
 - **Path Bytes (UTF-8):** Must begin with `/` and MUST NOT contain NUL (`0x00`) bytes.
 
 ---
@@ -53,7 +56,8 @@ Payload layout: `[1B Method] [2B Path Length (BE)] [Path Bytes (UTF-8)] [1B Head
 
 Payload layout: `[2B Status Code (BE)] [1B Header Count] [Headers ...] [Body Bytes]`
 - **Status Code (2 bytes, Big-Endian):** `200` (OK), `400` (Bad Request), `403` (Forbidden), `404` (Not Found), `405` (Method Not Allowed), `500` (Internal Server Error).
-- **Body Bytes:** Raw binary data. `Body Length = Payload Length - (3 + Total Headers Size)`. Never NUL-terminated. HEAD responses MUST have `Body Length = 0`.
+- **Body Bytes:** Raw binary data. `Body Length = Payload Length - (3 + Total Headers Size)`. Never NUL-terminated.
+- **HEAD Responses:** HEAD responses MUST have `Body Length = 0` and MUST include the `content-length` header indicating the size of the target file in bytes.
 
 ---
 
@@ -62,7 +66,7 @@ Payload layout: `[2B Status Code (BE)] [1B Header Count] [Headers ...] [Body Byt
 1. Server canonicalizes requested path: `target = realpath(join(web_root, rel_path))`.
 2. **Containment:** Canonical path MUST be within root: `commonpath([web_root, target]) == web_root`.
 3. Traversal attempts (`../`, `/../../etc/passwd`) MUST be rejected with **`400 Bad Request`**.
-4. Directories default to `index.html` if present, else return `404 Not Found`.
+4. **Resource Availability:** If the target resource does not exist on disk, the server MUST return `404 Not Found`. If the target resolves to a directory, the server checks for `index.html`; if absent, it returns `404 Not Found`.
 
 ---
 
@@ -84,5 +88,6 @@ Payload layout: `[2B Status Code (BE)] [1B Header Count] [Headers ...] [Body Byt
 - **Response `200 OK` (Stream 1, 56 bytes total):**
   - Header (7B): `00 00 31 02 00 00 01` (Len=49, Type=RESPONSE, Flags=0, StreamID=1)
   - Payload (49B): `00 C8` (200 OK) `03` (3 headers: `server: bserve/1.0`, `content-type: text/plain`, `content-length: 15`) `48 65 6C 6C 6F 20 42 48 54 54 50 2F 31 21 0A` (Body: `"Hello BHTTP/1!\n"`).
+
 
 
