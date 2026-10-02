@@ -250,6 +250,7 @@ class TestBHttpEndToEnd(unittest.TestCase):
         finally:
             sock.close()
 
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "Root user bypasses filesystem permission checks")
     def test_12_permission_denied_returns_403(self):
         """Unreadable file permissions must return 403 Forbidden."""
         test_file = os.path.join(self.web_root, "forbidden.txt")
@@ -290,7 +291,23 @@ class TestBHttpEndToEnd(unittest.TestCase):
         finally:
             sock.close()
 
+    def test_14_oversized_file_returns_500(self):
+        """A file exceeding the 16 MiB payload limit must return 500 cleanly."""
+        large_file = os.path.join(self.web_root, "oversized.bin")
+        # Create a 17 MiB sparse file (zero disk allocation)
+        with open(large_file, "wb") as f:
+            f.truncate(17 * 1024 * 1024)
+        try:
+            resp, sock = execute_bcurl("127.0.0.1", self.port, "/oversized.bin")
+            sock.close()
+            self.assertEqual(resp.status_code, 500)
+            self.assertIn(b"500 Internal Server Error", resp.body)
+        finally:
+            if os.path.exists(large_file):
+                os.remove(large_file)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
