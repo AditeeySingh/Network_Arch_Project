@@ -1,8 +1,8 @@
-"""Independent Interoperability Test Suite.
+"""Specification Conformance and Mock Foreign Interoperability Test Suite.
 
-Simulates a foreign team's client and server built strictly from SPEC.md
-without importing protocol.py, server.py, or client.py.
-Proves that BHTTP/1 is a true protocol specification, not just a coupled codebase.
+Simulates a third-party client and server built strictly from SPEC.md using only
+Python standard library struct and socket without importing protocol.py.
+Tests compatibility of bserve against a foreign client, and bcurl against a foreign server.
 """
 
 import os

@@ -119,35 +119,38 @@ Headers consist of a 1-byte `Header Count` (0..255) followed by that many serial
 
 ---
 
-## 9. Concrete Worked Example
+## 9. Concrete Worked Example (Live Captured Exchange)
 
 ### Request: `GET /hello.txt` (Stream ID = 1)
-**Header (7 bytes):** `00 00 1F 01 00 00 01`  
-- `00 00 1F` : Payload Length = 31 bytes
+**Header (7 bytes):** `00 00 31 01 00 00 01`  
+- `00 00 31` : Payload Length = 49 bytes (0x31)
 - `01`       : Frame Type = REQUEST (0x01)
 - `00`       : Flags = none
 - `00 01`    : Stream ID = 1
 
-**Payload (31 bytes):** `01 00 0A 2F 68 65 6C 6C 6F 2E 74 78 74 01 01 00 0E 6C 6F 63 61 6C 68 6F 73 74 3A 39 30 30 30`  
+**Payload (49 bytes):**  
+`01 00 0A 2F 68 65 6C 6C 6F 2E 74 78 74 03 01 00 0E 6C 6F 63 61 6C 68 6F 73 74 3A 39 30 30 30 02 00 09 62 63 75 72 6C 2F 31 2E 30 06 00 03 2A 2F 2A`
 - `01`       : Method = GET (0x01)
 - `00 0A`    : Path Length = 10 bytes
 - `2F 68 65 6C 6C 6F 2E 74 78 74` : `"/hello.txt"`
-- `01`       : Header Count = 1
-- `01`       : Header 1 Name ID = 0x01 (`host`)
-- `00 0E`    : Header 1 Value Length = 14 bytes
-- `6C 6F 63 61 6C 68 6F 73 74 3A 39 30 30 30` : `"localhost:9000"`
+- `03`       : Header Count = 3
+- `01 00 0E 6C 6F...` : Hdr 1: Name ID `0x01` (`host`), Val Len 14, `"localhost:9000"`
+- `02 00 09 62 63...` : Hdr 2: Name ID `0x02` (`user-agent`), Val Len 9, `"bcurl/1.0"`
+- `06 00 03 2A 2F 2A` : Hdr 3: Name ID `0x06` (`accept`), Val Len 3, `"*/*"`
 
 ### Response: `200 OK` (Stream ID = 1, Body: `Hello BHTTP/1!\n`)
-**Header (7 bytes):** `00 00 1F 02 00 00 01`  
-- `00 00 1F` : Payload Length = 31 bytes
+**Header (7 bytes):** `00 00 31 02 00 00 01`  
+- `00 00 31` : Payload Length = 49 bytes (0x31)
 - `02`       : Frame Type = RESPONSE (0x02)
 - `00`       : Flags = none
 - `00 01`    : Stream ID = 1
 
-**Payload (31 bytes):** `00 C8 01 07 00 0A 62 73 65 72 76 65 2F 31 2E 30 48 65 6C 6C 6F 20 42 48 54 54 50 2F 31 21 0A`  
+**Payload (49 bytes):**  
+`00 C8 03 07 00 0A 62 73 65 72 76 65 2F 31 2E 30 03 00 0A 74 65 78 74 2F 70 6C 61 69 6E 04 00 02 31 35 48 65 6C 6C 6F 20 42 48 54 54 50 2F 31 21 0A`
 - `00 C8`    : Status = 200 OK
-- `01`       : Header Count = 1
-- `07`       : Header 1 Name ID = 0x07 (`server`)
-- `00 0A`    : Header 1 Value Length = 10 bytes
-- `62 73 65 72 76 65 2F 31 2E 30` : `"bserve/1.0"`
+- `03`       : Header Count = 3
+- `07 00 0A 62 73...` : Hdr 1: Name ID `0x07` (`server`), Val Len 10, `"bserve/1.0"`
+- `03 00 0A 74 65...` : Hdr 2: Name ID `0x03` (`content-type`), Val Len 10, `"text/plain"`
+- `04 00 02 31 35`    : Hdr 3: Name ID `0x04` (`content-length`), Val Len 2, `"15"`
 - `48 65 6C 6C 6F 20 42 48 54 54 50 2F 31 21 0A` : Body = `"Hello BHTTP/1!\n"` (15 bytes)
+
