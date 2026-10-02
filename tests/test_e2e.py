@@ -40,11 +40,13 @@ class TestBHttpEndToEnd(unittest.TestCase):
         cls.port = cls.server_sock.getsockname()[1]
         cls.server_sock.listen(16)
         cls.running = True
+        cls.accepted_connections_count = 0
 
         def server_worker():
             while cls.running:
                 try:
                     conn, addr = cls.server_sock.accept()
+                    cls.accepted_connections_count += 1
                     t = threading.Thread(
                         target=handle_client_connection,
                         args=(conn, addr, cls.web_root),
@@ -114,9 +116,25 @@ class TestBHttpEndToEnd(unittest.TestCase):
                 self.assertNotIn(b"root:", resp.body)
 
     def test_07_persistent_connection_multiple_requests(self):
-        """Mandatory requirement: Multiple requests over the EXACT SAME TCP socket."""
+        """Mandatory requirement: Multiple requests over the EXACT SAME TCP socket.
+        
+        Instrumented to verify:
+        1. Only 1 connection is accepted by the server.
+        2. Client socket fileno and local port remain identical across all requests.
+        3. No secondary TCP connection is ever opened.
+        """
+        conn_count_start = self.accepted_connections_count
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect(("127.0.0.1", self.port))
+        
+        # Verify exactly one new connection was registered on the server
+        time.sleep(0.05)
+        self.assertEqual(self.accepted_connections_count, conn_count_start + 1)
+        
+        client_fd = sock.fileno()
+        client_port = sock.getsockname()[1]
+        self.assertGreater(client_fd, 0)
+
         try:
             # We will send 6 sequential requests across this single socket
             requests_to_send = [
@@ -140,6 +158,11 @@ class TestBHttpEndToEnd(unittest.TestCase):
                 self.assertEqual(resp.status_code, expected_status)
                 if expected_body is not None:
                     self.assertEqual(resp.body, expected_body)
+
+                # Crucial assertion: The TCP socket connection is unchanged
+                self.assertEqual(sock.fileno(), client_fd)
+                self.assertEqual(sock.getsockname()[1], client_port)
+                self.assertEqual(self.accepted_connections_count, conn_count_start + 1)
 
         finally:
             sock.close()
