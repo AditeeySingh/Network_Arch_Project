@@ -25,6 +25,7 @@ from protocol import (
     Response,
     TruncatedFrameError,
     decode_response_payload,
+    encode_frame,
     encode_request_frame,
     encode_response_frame,
     format_hexdump,
@@ -83,14 +84,27 @@ def send_request(
     while True:
         frame = read_frame(sock)
 
-        if verbose:
-            print(hexdump_annotated_frame(encode_request_frame(req) if False else frame.payload, "FRAME PAYLOAD"), file=sys.stderr)
+        full_frame_bytes = encode_frame(
+            frame.frame_type, frame.flags, frame.stream_id, frame.payload
+        )
 
         if frame.frame_type != TYPE_RESPONSE:
             # Unknown frame type: safely skipped by read_frame!
             if verbose:
-                print(f"* Skipping unknown frame type: 0x{frame.frame_type:02X} (length {frame.payload_length})", file=sys.stderr)
+                print(
+                    hexdump_annotated_frame(
+                        full_frame_bytes, f"RECV UNKNOWN (0x{frame.frame_type:02X})"
+                    ),
+                    file=sys.stderr,
+                )
+                print(
+                    f"* Skipping unknown frame type: 0x{frame.frame_type:02X} (length {frame.payload_length})",
+                    file=sys.stderr,
+                )
             continue
+
+        if verbose:
+            print(hexdump_annotated_frame(full_frame_bytes, "RECV RESPONSE"), file=sys.stderr)
 
         # Received RESPONSE frame
         resp = decode_response_payload(frame.payload, stream_id=frame.stream_id)
